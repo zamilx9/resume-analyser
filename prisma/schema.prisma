@@ -1,0 +1,265 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ============================================
+// USER & AUTHENTICATION MODELS
+// ============================================
+
+model User {
+  id            String     @id @default(cuid()) @map("_id")
+  email         String     @unique
+  name          String?
+  password      String
+  phoneNumber   String?
+  role          UserRole   @default(USER)
+  profileImage  String?
+  isVerified    Boolean    @default(false)
+  verificationToken String?
+  
+  // Relations
+  resumes       Resume[]
+  atsAnalyses   AtsAnalysis[]
+  transactions  Transaction[]
+  educations    Education[]
+  documents     Document[]
+  
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  
+  @@index([role])
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  PREMIUM_USER
+}
+
+// ============================================
+// RESUME MODELS
+// ============================================
+
+model Resume {
+  id            String     @id @default(cuid()) @map("_id")
+  userId        String
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  title         String
+  content       String
+  fileUrl       String?
+  fileName      String?
+  
+  resumeType    ResumeType @default(UPLOADED)
+  jobDescriptionId String?
+  jobDescription JobDescription? @relation(fields: [jobDescriptionId], references: [id])
+  
+  // ATS Analysis
+  atsAnalysis   AtsAnalysis?
+  
+  // Document reference
+  documentId    String?   @unique
+  document      Document?  @relation(fields: [documentId], references: [id])
+  
+  isPaid        Boolean    @default(false)
+  transactionId String?
+  transaction   Transaction? @relation(fields: [transactionId], references: [id])
+  
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  
+  @@index([userId])
+  @@index([resumeType])
+  @@index([isPaid])
+}
+
+enum ResumeType {
+  UPLOADED
+  JOB_BASED
+  EDUCATION_BASED
+}
+
+// ============================================
+// JOB DESCRIPTION & EDUCATION MODELS
+// ============================================
+
+model JobDescription {
+  id            String     @id @default(cuid()) @map("_id")
+  userId        String
+  
+  title         String
+  company       String?
+  description   String
+  requiredSkills String[]
+  
+  resumes       Resume[]
+  
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  
+  @@index([userId])
+}
+
+model Education {
+  id            String     @id @default(cuid()) @map("_id")
+  userId        String
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  instituteName String
+  degree        String
+  field         String
+  startDate     DateTime
+  endDate       DateTime?
+  gpa           Float?
+  description   String?
+  
+  skills        Skill[]
+  
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  
+  @@index([userId])
+}
+
+model Skill {
+  id            String     @id @default(cuid()) @map("_id")
+  educationId   String?
+  education     Education? @relation(fields: [educationId], references: [id], onDelete: Cascade)
+  
+  name          String
+  proficiency   ProficiencyLevel @default(INTERMEDIATE)
+  
+  createdAt     DateTime   @default(now())
+  
+  @@index([educationId])
+}
+
+enum ProficiencyLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  EXPERT
+}
+
+// ============================================
+// ATS ANALYSIS MODEL
+// ============================================
+
+model AtsAnalysis {
+  id            String     @id @default(cuid()) @map("_id")
+  userId        String
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  resumeId      String     @unique
+  resume        Resume     @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  
+  score         Int        // 0-100
+  summary       String?
+  
+  // Analysis feedback
+  strengths     String[]
+  improvements  String[]
+  missingKeywords String[]
+  
+  // Metadata
+  analyzedAt    DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  
+  @@index([userId])
+}
+
+// ============================================
+// DOCUMENT MODEL (S3 Storage References)
+// ============================================
+
+model Document {
+  id            String     @id @default(cuid()) @map("_id")
+  userId        String
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  fileName      String
+  fileType      String     // pdf, doc, docx
+  fileSize      Int        // in bytes
+  s3Key         String     @unique
+  s3Url         String
+  
+  resume        Resume?
+  
+  createdAt     DateTime   @default(now())
+  
+  @@index([userId])
+}
+
+// ============================================
+// PAYMENT & TRANSACTION MODEL
+// ============================================
+
+model Transaction {
+  id            String     @id @default(cuid()) @map("_id")
+  userId        String
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  stripePaymentIntentId String @unique
+  amount        Int        // in paise (₹10 = 1000 paise)
+  currency      String     @default("INR")
+  status        PaymentStatus @default(PENDING)
+  
+  description   String?
+  resumes       Resume[]
+  
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  
+  @@index([userId])
+  @@index([status])
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+// ============================================
+// OTP VERIFICATION MODEL
+// ============================================
+
+model OtpVerification {
+  id            String     @id @default(cuid()) @map("_id")
+  email         String     @unique
+  otp           String
+  expiresAt     DateTime
+  attempts      Int        @default(0)
+  
+  createdAt     DateTime   @default(now())
+}
+
+// ============================================
+// AUDIT LOGS MODEL
+// ============================================
+
+model AuditLog {
+  id            String     @id @default(cuid()) @map("_id")
+  userId        String?
+  action        String
+  resource      String
+  details       String?
+  ipAddress     String?
+  
+  createdAt     DateTime   @default(now())
+  
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
