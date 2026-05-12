@@ -14,7 +14,7 @@ import {
 import { uploadFileToS3, deleteFileFromS3 } from "@/utils/s3";
 import { analyzeResume } from "@/utils/atsScorer";
 import { createATSAnalysis } from "@/app/api/v1/ats/dal/atsDAL";
-import { validateFileSize, validateResumeFileType } from "@/utils/helpers";
+// Removed pdf-parse import due to build issues
 
 /**
  * Generate resume from job description
@@ -107,7 +107,7 @@ export async function uploadResume(userId, fileBuffer, fileName, mimeType) {
     });
 
     // Extract text from file (simplified - in production use pdfparse, docx etc.)
-    const extractedText = extractTextFromFile(fileBuffer, fileName);
+    const extractedText = await extractTextFromFile(fileBuffer, fileName);
 
     // Create resume record
     const resume = await createResume({
@@ -347,8 +347,22 @@ function createResumeFromTemplate({ educationData, jobDescription, isJobBased = 
 /**
  * Extract text from file buffer (simplified)
  */
-function extractTextFromFile(fileBuffer, fileName) {
-  // In production, use libraries like pdfparse, docxtemplater, etc.
-  // For now, return a placeholder
-  return `Document: ${fileName}\n[Content would be extracted from file in production environment]`;
+async function extractTextFromFile(fileBuffer, fileName) {
+  const fileType = fileName.split('.').pop().toLowerCase();
+
+  try {
+    if (fileType === 'pdf') {
+      // For PDF files, return placeholder text (PDF parsing requires browser APIs)
+      return `Document: ${fileName}\n[This is a PDF file. Please provide text content for ATS analysis.]`;
+    } else if (fileType === 'txt') {
+      // For text files, return as is
+      return fileBuffer.toString('utf-8');
+    } else {
+      // For DOC/DOCX, placeholder (would need mammoth or similar)
+      return `Document: ${fileName}\n[Content extraction for ${fileType.toUpperCase()} not implemented yet]`;
+    }
+  } catch (error) {
+    console.error('Text extraction error:', error);
+    return `Document: ${fileName}\n[Error extracting text: ${error.message}]`;
+  }
 }

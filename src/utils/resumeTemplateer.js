@@ -4,6 +4,142 @@
  */
 
 /**
+ * Generate job-focused career objective based on job description and keywords
+ */
+export function generateJobFocusedCareerObjective(jobDescription, jobKeywords, userDetails = {}) {
+  const { fullName } = userDetails || {};
+  
+  // Extract job title and company if available
+  let jobTitle = "professional";
+  let keywords = [];
+
+  // Try to extract job title from description
+  const titleMatch = jobDescription.match(/(?:job title|position|role):\s*([^\n,]+)/i);
+  if (titleMatch) jobTitle = titleMatch[1].trim();
+
+  // Get top 5 keywords
+  if (jobKeywords && jobKeywords.length > 0) {
+    keywords = jobKeywords.slice(0, 5);
+  }
+
+  // Generate context-specific objectives
+  const objectives = [
+    `Seeking a ${jobTitle} position where I can leverage my expertise in ${keywords.join(", ")} to drive innovation and deliver measurable business impact. Committed to contributing technical excellence and collaborative problem-solving to achieve organizational objectives.`,
+
+    `Motivated professional with strong proficiency in ${keywords.slice(0, 3).join(", ")}. Aiming to secure a ${jobTitle} role to apply technical acumen and strategic thinking in solving complex business challenges and accelerating company growth.`,
+
+    `Results-oriented developer with proven expertise in ${keywords.join(", ")}. Looking to join a forward-thinking team as a ${jobTitle} to contribute robust solutions, drive technical initiatives, and deliver exceptional value to stakeholders.`,
+
+    `Seeking a ${jobTitle} opportunity to leverage expertise in ${keywords.slice(0, 4).join(", ")} to architect scalable solutions and collaborate with talented teams in delivering impactful projects that align with business goals.`,
+
+    `Passionate engineer with hands-on experience in ${keywords.slice(0, 3).join(", ")}. Aspiring to secure a ${jobTitle} position to advance technical expertise, mentor team members, and contribute to innovative product development initiatives.`,
+  ];
+
+  return objectives[Math.floor(Math.random() * objectives.length)];
+}
+
+/**
+ * Generate tailored resume with job keywords (exported for API use)
+ */
+export function generateTailoredResumeWithJobKeywords(resume, jobKeywords, resumeKeywords, careerObjective) {
+  let tailoredResume = resume;
+
+  // Replace career objective if present
+  if (careerObjective) {
+    // Match career objective sections (case-insensitive)
+    const objectiveRegex = /CAREER\s+OBJECTIVE[\s\n]+(.*?)(?=\n[A-Z]|\n\n[A-Z]|$)/is;
+    const match = tailoredResume.match(objectiveRegex);
+    
+    if (match) {
+      // Replace the old career objective with the new one
+      tailoredResume = tailoredResume.replace(
+        objectiveRegex,
+        `CAREER OBJECTIVE\n${careerObjective}\n\n`
+      );
+    } else {
+      // If no career objective found, add it after the header
+      const headerEndMatch = tailoredResume.match(/<<<HEADER_END>>>\n\n/);
+      if (headerEndMatch) {
+        const insertPos = headerEndMatch.index + headerEndMatch[0].length;
+        tailoredResume = 
+          tailoredResume.substring(0, insertPos) +
+          `CAREER OBJECTIVE\n${careerObjective}\n\n` +
+          tailoredResume.substring(insertPos);
+      }
+    }
+  }
+
+  // Build a focused skills section using only job-relevant keywords.
+  const matchedJobKeywords = jobKeywords.filter((keyword) =>
+    resumeKeywords.some((rk) => rk.toLowerCase() === keyword.toLowerCase())
+  );
+
+  const focusSkills = matchedJobKeywords.length > 0
+    ? matchedJobKeywords
+    : jobKeywords.slice(0, 5);
+
+  const newSkillsSection = `TECHNICAL SKILLS:\nLanguages & Frameworks: ${focusSkills.join(", ")}`;
+  const skillsSectionRegex = /TECHNICAL SKILLS:[\s\S]*?(?=\n[A-Z][A-Z ]+:|$)/;
+
+  if (skillsSectionRegex.test(tailoredResume)) {
+    tailoredResume = tailoredResume.replace(skillsSectionRegex, newSkillsSection);
+  } else {
+    const objectiveEnd = tailoredResume.indexOf("CAREER OBJECTIVE");
+    if (objectiveEnd !== -1) {
+      const objectiveClose = tailoredResume.indexOf("\n\n", objectiveEnd);
+      if (objectiveClose !== -1) {
+        tailoredResume =
+          tailoredResume.substring(0, objectiveClose + 2) +
+          newSkillsSection +
+          "\n\n" +
+          tailoredResume.substring(objectiveClose + 2);
+      } else {
+        tailoredResume += "\n\n" + newSkillsSection;
+      }
+    } else {
+      tailoredResume += "\n\n" + newSkillsSection;
+    }
+  }
+
+  // Highlight matched job keywords in the resume text.
+  matchedJobKeywords.forEach((keyword) => {
+    const regex = new RegExp(`\\b(${keyword})\\b`, "gi");
+    tailoredResume = tailoredResume.replace(regex, "**$1**");
+  });
+
+  const matchedCount = matchedJobKeywords.length;
+  const matchedKeywordsList = matchedJobKeywords
+    .slice(0, 10)
+    .map(k => `• ${k}`)
+    .join("\n");
+
+  if (matchedKeywordsList) {
+    const skillsEndRegex = /TECHNICAL SKILLS:[\s\S]*?(?=\n[A-Z][A-Z ]+:|$)/;
+    const skillsMatch = tailoredResume.match(skillsEndRegex);
+    if (skillsMatch) {
+      const insertPos = skillsMatch.index + skillsMatch[0].length;
+      tailoredResume =
+        tailoredResume.substring(0, insertPos) +
+        `\n\nKEY MATCHED KEYWORDS (${matchedCount}/${jobKeywords.length}):\n${matchedKeywordsList}\n` +
+        tailoredResume.substring(insertPos);
+    }
+  }
+
+  const missingKeywords = jobKeywords.filter(
+    (keyword) =>
+      !matchedJobKeywords.some((mk) => mk.toLowerCase() === keyword.toLowerCase())
+  );
+
+  if (missingKeywords.length > 0) {
+    tailoredResume +=
+      "\n\n--- SUGGESTED SKILLS TO STRENGTHEN YOUR APPLICATION ---\n" +
+      missingKeywords.slice(0, 8).map((k) => `• ${k}`).join("\n");
+  }
+
+  return tailoredResume;
+}
+
+/**
  * Generate professional career objective for freshers
  */
 export function generateCareerObjective(userDetails, skills, education) {
@@ -207,6 +343,93 @@ export function generateProfessionalResume(userDetails, education, skills, certi
   }
 
   return resume.trim();
+}
+
+/**
+ * Parse resume text and extract structured data
+ */
+export function parseResumeText(resumeText) {
+  const lines = resumeText.split('\n').map(line => line.trim()).filter(line => line);
+  
+  const extracted = {
+    userDetails: {
+      fullName: '',
+      email: '',
+      phone: '',
+      location: '',
+      linkedIn: '',
+      github: '',
+      careerObjective: ''
+    },
+    education: [],
+    skills: [],
+    certifications: []
+  };
+
+  let currentSection = '';
+  
+  for (const line of lines) {
+    const lowerLine = line.toLowerCase();
+    
+    // Extract contact information
+    if (!extracted.userDetails.fullName && /^[A-Z\s]+$/.test(line) && line.length > 5) {
+      extracted.userDetails.fullName = line;
+    } else if (lowerLine.includes('@') && !extracted.userDetails.email) {
+      const emailMatch = line.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+      if (emailMatch) extracted.userDetails.email = emailMatch[1];
+    } else if (/^\+?\d{10,}$/.test(line.replace(/\s+/g, '')) && !extracted.userDetails.phone) {
+      extracted.userDetails.phone = line.replace(/\s+/g, '');
+    } else if (lowerLine.includes('linkedin') || lowerLine.includes('linked in')) {
+      const linkedInMatch = line.match(/(?:linkedin|linked in)[:\s]*([^\s]+)/i);
+      if (linkedInMatch) extracted.userDetails.linkedIn = linkedInMatch[1];
+    } else if (lowerLine.includes('github')) {
+      const githubMatch = line.match(/github[:\s]*([^\s]+)/i);
+      if (githubMatch) extracted.userDetails.github = githubMatch[1];
+    } else if (lowerLine.includes('location') || lowerLine.includes('city')) {
+      const locationMatch = line.match(/(?:location|city)[:\s]*([^\n]+)/i);
+      if (locationMatch) extracted.userDetails.location = locationMatch[1].trim();
+    }
+    
+    // Detect sections
+    if (lowerLine.includes('education') || lowerLine.includes('academic')) {
+      currentSection = 'education';
+    } else if (lowerLine.includes('skill') || lowerLine.includes('technical') || lowerLine.includes('competenc')) {
+      currentSection = 'skills';
+    } else if (lowerLine.includes('certification') || lowerLine.includes('certif')) {
+      currentSection = 'certifications';
+    } else if (lowerLine.includes('objective') || lowerLine.includes('summary')) {
+      currentSection = 'objective';
+    } else if (lowerLine.includes('experience') || lowerLine.includes('work') || lowerLine.includes('project')) {
+      currentSection = 'experience';
+    } else if (currentSection && line.startsWith('•') || line.startsWith('-') || /^\d+\./.test(line)) {
+      // Extract content from bullet points
+      const content = line.replace(/^[•\-]\s*/, '').replace(/^\d+\.\s*/, '').trim();
+      
+      if (currentSection === 'education') {
+        if (content && !extracted.education.includes(content)) {
+          extracted.education.push(content);
+        }
+      } else if (currentSection === 'skills') {
+        const skillsInLine = content.split(',').map(s => s.trim()).filter(s => s);
+        extracted.skills.push(...skillsInLine);
+      } else if (currentSection === 'certifications') {
+        if (content && !extracted.certifications.includes(content)) {
+          extracted.certifications.push(content);
+        }
+      } else if (currentSection === 'objective') {
+        extracted.userDetails.careerObjective += (extracted.userDetails.careerObjective ? ' ' : '') + content;
+      }
+    } else if (currentSection === 'skills' && !line.startsWith('•') && !line.startsWith('-') && !/^\d+\./.test(line) && line.length > 3) {
+      // Handle skills listed without bullets
+      const skillsInLine = line.split(',').map(s => s.trim()).filter(s => s);
+      extracted.skills.push(...skillsInLine);
+    }
+  }
+  
+  // Clean up skills (remove duplicates and empty)
+  extracted.skills = [...new Set(extracted.skills.filter(s => s && s.length > 1))];
+  
+  return extracted;
 }
 
 /**

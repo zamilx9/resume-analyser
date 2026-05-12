@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo, useEffect } from "react";
 import "primeicons/primeicons.css";
 import { analyzeResume } from "@/utils/atsScorer";
 import { generateProfessionalResume } from "@/utils/resumeTemplateer";
+import jsPDF from "jspdf";
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState("upload");
@@ -36,11 +37,25 @@ export default function Home() {
       formData.append("file", uploadFile);
       const response = await fetch("/api/v1/ats/analyze", { method: "POST", body: formData });
       const data = await response.json();
-      if (response.ok) { setUploadResult(data.data); }
+      if (response.ok) { 
+        setUploadResult(data.data);
+        // If extracted data available, populate education fields
+        if (data.data.extractedData) {
+          const extracted = data.data.extractedData;
+          setEduUserDetails({
+            ...eduUserDetails,
+            ...extracted.userDetails
+          });
+          setEducation(extracted.education.join('\n'));
+          setSkills(extracted.skills.join('\n'));
+          setCertifications(extracted.certifications.join('\n'));
+          setActiveTab("education"); // Switch to education tab
+        }
+      }
       else { alert("Error: " + (data.message || "Failed")); }
     } catch (error) { alert("Error: " + error.message); }
     finally { setUploadLoading(false); }
-  }, [uploadFile]);
+  }, [uploadFile, eduUserDetails]);
 
   const handleGenerateFromEducation = useCallback(async () => {
     if (!education || !skills || !eduUserDetails.fullName) { alert("Fill required fields"); return; }
@@ -107,16 +122,52 @@ export default function Home() {
     finally { setJobLoading(false); }
   }, [generatedResume, jobDesc2]);
 
-  const downloadResume = useCallback((text, filename = "resume.txt") => {
-    const blob = new Blob([text], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  const downloadResume = useCallback((text, filename = "resume.pdf") => {
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 10; // Small margin
+    const maxWidth = pageWidth - 2 * margin;
+
+    doc.setFontSize(12);
+
+    const lines = text.split('\n');
+    let y = margin + 10; // Start position
+
+    lines.forEach(line => {
+      if (y > pageHeight - margin) {
+        doc.addPage();
+        y = margin + 10;
+      }
+
+      // Split long lines
+      const words = line.split(' ');
+      let currentLine = '';
+
+      words.forEach(word => {
+        const testLine = currentLine ? `${currentLine} ${word}` : word;
+        const textWidth = doc.getTextWidth(testLine);
+
+        if (textWidth > maxWidth && currentLine) {
+          doc.text(currentLine, margin, y);
+          y += 6; // Line height
+          if (y > pageHeight - margin) {
+            doc.addPage();
+            y = margin + 10;
+          }
+          currentLine = word;
+        } else {
+          currentLine = testLine;
+        }
+      });
+
+      if (currentLine) {
+        doc.text(currentLine, margin, y);
+        y += 6;
+      }
+    });
+
+    doc.save(filename);
   }, []);
 
   const copyToClipboard = useCallback((text) => {
@@ -195,7 +246,7 @@ export default function Home() {
           <h3 className="text-xl font-bold text-gray-900 dark:text-white"><i className="pi pi-file-pdf mr-2"></i>Resume</h3>
           <div className="gap-2 flex">
             <button onClick={() => copyToClipboard(resumeText)} className="px-3 py-1 bg-blue-600 text-white rounded text-sm"><i className="pi pi-copy mr-1"></i>Copy</button>
-            <button onClick={() => downloadResume(resumeText, "resume.txt")} className="px-3 py-1 bg-green-600 text-white rounded text-sm"><i className="pi pi-download mr-1"></i>Download</button>
+            <button onClick={() => downloadResume(resumeText, "resume.pdf")} className="px-3 py-1 bg-green-600 text-white rounded text-sm"><i className="pi pi-download mr-1"></i>Download</button>
           </div>
         </div>
         {data.score && <div className="grid grid-cols-3 gap-4 mb-4"><div className={`text-center p-4 rounded ${data.score >= 80 ? "bg-green-100" : "bg-yellow-100"}`}><div className="text-3xl font-bold">{data.score}</div><div className="text-sm font-semibold">ATS Score</div></div><div className={`text-center p-4 rounded ${data.matchPercentage >= 75 ? "bg-blue-100" : "bg-orange-100"}`}><div className="text-3xl font-bold">{data.matchPercentage || 0}%</div><div className="text-sm font-semibold">Keyword Match</div></div><div className="text-center p-4 rounded bg-purple-100"><div className="text-3xl font-bold">{data.matchedKeywords || 0}/{data.totalKeywords || 40}</div><div className="text-sm font-semibold">Keywords</div></div></div>}
@@ -245,7 +296,36 @@ export default function Home() {
                 {uploadLoading ? <span className="flex items-center justify-center gap-2"><i className="pi pi-spin pi-spinner"></i>Analyzing...</span> : <><i className="pi pi-search mr-2"></i>Analyze Resume</>}
               </button>
             </div>
-            <div>{uploadResult ? renderResume(uploadResult) : <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6 text-center"><i className="pi pi-inbox text-4xl text-gray-300 dark:text-gray-600"></i><p className="text-gray-600 dark:text-gray-400 mt-3 text-sm">Upload resume to see analysis</p></div>}</div>
+            <div>{uploadResult ? (
+              <div className="space-y-4">
+                {/* ATS Score Display */}
+                {uploadResult.score && (
+                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-700 rounded-lg p-4">
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">ATS Analysis Result</h3>
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className={`text-center p-3 rounded ${uploadResult.score >= 80 ? "bg-green-100 dark:bg-green-800" : uploadResult.score >= 50 ? "bg-yellow-100 dark:bg-yellow-800" : "bg-red-100 dark:bg-red-800"}`}>
+                        <div className="text-2xl font-bold text-gray-900 dark:text-white">{uploadResult.score}</div>
+                        <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">ATS Score</div>
+                      </div>
+                      <div className="text-center p-3 rounded bg-blue-100 dark:bg-blue-800">
+                        <div className="text-2xl font-bold text-gray-900 dark:text-white">{uploadResult.matchPercentage || 0}%</div>
+                        <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">Keyword Match</div>
+                      </div>
+                      <div className="text-center p-3 rounded bg-purple-100 dark:bg-purple-800">
+                        <div className="text-2xl font-bold text-gray-900 dark:text-white">{uploadResult.matchedKeywords || 0}/{uploadResult.totalKeywords || 40}</div>
+                        <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">Keywords</div>
+                      </div>
+                    </div>
+                    {uploadResult.extractedData && (
+                      <div className="mt-3 text-sm text-green-600 dark:text-green-400">
+                        <i className="pi pi-check-circle mr-1"></i>Resume data extracted and loaded into Build & Improve tab
+                      </div>
+                    )}
+                  </div>
+                )}
+                {renderResume(uploadResult)}
+              </div>
+            ) : <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6 text-center"><i className="pi pi-inbox text-4xl text-gray-300 dark:text-gray-600"></i><p className="text-gray-600 dark:text-gray-400 mt-3 text-sm">Upload resume to see analysis</p></div>}</div>
           </div>
         )}
 
@@ -299,12 +379,21 @@ export default function Home() {
                   <h4 className="font-bold text-sm text-gray-900 dark:text-white mb-2 flex items-center gap-1"><i className="pi pi-book text-green-500 text-xs"></i>Education</h4>
                   <div className="space-y-2">
                     <div>
-                      <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">Institution / University *</label>
-                      <input type="text" value={education} onChange={(e) => setEducation(e.target.value)} placeholder="e.g., Stanford University, MIT, Harvard" className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white" />
+                      <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">Institution / University - Year Range *</label>
+                      <textarea value={education} onChange={(e) => setEducation(e.target.value)} placeholder="e.g., Stanford University - 2020 to 2024&#10;MIT - 2021 to 2025&#10;Harvard - 2022 to 2026" rows="3" className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white" />
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Format: Institution Name - StartYear to EndYear (one per line)</p>
                     </div>
+                  </div>
+                </div>
+
+                {/* Certifications Section */}
+                <div className="border-t border-gray-200 dark:border-gray-600 pt-3">
+                  <h4 className="font-bold text-sm text-gray-900 dark:text-white mb-2 flex items-center gap-1"><i className="pi pi-certificate text-yellow-500 text-xs"></i>Certifications & Achievements</h4>
+                  <div className="space-y-2">
                     <div>
-                      <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">Graduation Year</label>
-                      <input type="text" value={certifications} onChange={(e) => setCertifications(e.target.value)} placeholder="e.g., 2023, Expected 2025" className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white" />
+                      <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">Certifications (Optional)</label>
+                      <textarea value={certifications} onChange={(e) => setCertifications(e.target.value)} placeholder="e.g., AWS Certified Solutions Architect - 2024&#10;Google Cloud Professional - 2023&#10;Microsoft Certified: Azure Administrator" rows="3" className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white" />
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">One certification per line</p>
                     </div>
                   </div>
                 </div>

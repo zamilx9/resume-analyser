@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { analyzeResume } from "@/utils/atsScorer";
-import { generateProfessionalResume, tailorResumeForJob } from "@/utils/resumeTemplateer";
+import { generateProfessionalResume, tailorResumeForJob, parseResumeText } from "@/utils/resumeTemplateer";
 import { successResponse, errorResponse } from "@/utils/helpers";
+import { uploadResume } from "../../resumes/services/resumeService";
+import { createATSAnalysis } from "../dal/atsDAL";
 
 // Extract keywords from job description
 function extractKeywordsFromJD(jobDescription) {
@@ -76,10 +78,38 @@ export async function POST(request) {
       }
     }
 
+    // Parse resume content to extract structured data
+    const parsedData = parseResumeText(fileContent);
+
     // Generate tailored resume if user details provided
     let tailoredResume = null;
     if (userDetails.fullName) {
       tailoredResume = generateProfessionalResume(userDetails, [], [], []);
+    }
+
+    // Upload resume to database (for training data)
+    let resumeRecord = null;
+    let atsAnalysisRecord = null;
+    try {
+      const userId = "test-user"; // TODO: Get from auth
+      const fileBuffer = Buffer.from(await file.arrayBuffer());
+      
+      // Upload resume
+      resumeRecord = await uploadResume(userId, fileBuffer, file.name, file.type);
+      
+      // Save ATS analysis for training
+      atsAnalysisRecord = await createATSAnalysis({
+        userId,
+        resumeId: resumeRecord.id,
+        score: analysis.score,
+        summary: `ATS Score: ${analysis.score}/100`,
+        strengths: analysis.strengths || [],
+        improvements: analysis.improvements || [],
+        missingKeywords: suggestedKeywords,
+      });
+    } catch (dbError) {
+      console.error("Database save error:", dbError);
+      // Continue without saving to DB, don't fail the request
     }
 
     return NextResponse.json(
@@ -88,7 +118,10 @@ export async function POST(request) {
         suggestedKeywords,
         optimizedContent: tailoredResume || fileContent.substring(0, 500),
         resumeText: tailoredResume,
-      }, "Resume analyzed successfully", 200),
+        extractedData: parsedData, // Add extracted data
+        resumeId: resumeRecord?.id,
+        analysisId: atsAnalysisRecord?.id,
+      }, "Resume analyzed and saved successfully", 200),
       { status: 200 }
     );
   } catch (error) {

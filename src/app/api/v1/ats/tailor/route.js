@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { analyzeResume } from "@/utils/atsScorer";
 import { successResponse, errorResponse } from "@/utils/helpers";
+import { generateJobFocusedCareerObjective, generateTailoredResumeWithJobKeywords } from "@/utils/resumeTemplateer";
 
 export async function POST(req) {
   try {
@@ -23,27 +24,37 @@ export async function POST(req) {
       );
     }
 
-    // Analyze the base resume
-    const analysis = analyzeResume(resume, jobDescription);
-
     // Extract keywords from job description
     const jobKeywords = extractKeywordsFromJD(jobDescription);
 
     // Extract keywords already in resume
     const resumeKeywords = extractKeywordsFromResume(resume);
 
-    // Find missing keywords
-    const missingKeywords = jobKeywords.filter(
-      (keyword) =>
-        !resumeKeywords.some((rk) => rk.toLowerCase() === keyword.toLowerCase())
+    // Find missing keywords using actual resume text presence instead of only extracted keywords
+    const resumeLower = resume.toLowerCase();
+    const missingKeywords = jobKeywords.filter((keyword) => {
+      const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(`\\b${escaped}\\b`, "i");
+      return !regex.test(resumeLower);
+    });
+
+    // Generate job-focused career objective
+    const jobFocusedObjective = generateJobFocusedCareerObjective(
+      jobDescription,
+      jobKeywords,
+      userDetails
     );
 
-    // Generate tailored resume by reordering and emphasizing job-relevant content
-    const tailoredResume = generateTailoredResume(
+    // Generate tailored resume with job keywords and new career objective
+    const tailoredResume = generateTailoredResumeWithJobKeywords(
       resume,
       jobKeywords,
-      resumeKeywords
+      resumeKeywords,
+      jobFocusedObjective
     );
+
+    // Analyze the tailored resume for ATS score
+    const analysis = analyzeResume(tailoredResume, jobDescription);
 
     // Calculate match percentage
     const matchPercentage = calculateMatchPercentage(jobKeywords, resumeKeywords);
@@ -59,6 +70,7 @@ export async function POST(req) {
           jobKeywords.some((jk) => jk.toLowerCase() === rk.toLowerCase())
         ),
         jobKeywords,
+        careerObjective: jobFocusedObjective,
       }),
       { status: 200 }
     );
@@ -331,45 +343,6 @@ function extractKeywordsFromResume(resume) {
   });
 
   return Array.from(foundKeywords);
-}
-
-/**
- * Generate tailored resume emphasizing job-relevant keywords
- */
-function generateTailoredResume(resume, jobKeywords, resumeKeywords) {
-  // Emphasize matching keywords in the resume
-  let tailoredResume = resume;
-
-  // Add a note at the top about tailoring
-  const header = `RESUME TAILORED FOR JOB MATCH
-Keyword Match: ${resumeKeywords.length}/${jobKeywords.length} technical skills found
-
----
-
-`;
-
-  // Highlight matched keywords in bold (using markdown-style or plain emphasis)
-  jobKeywords.forEach((keyword) => {
-    if (resumeKeywords.some((rk) => rk.toLowerCase() === keyword.toLowerCase())) {
-      // Create case-insensitive replacement
-      const regex = new RegExp(`\\b(${keyword})\\b`, "gi");
-      tailoredResume = tailoredResume.replace(regex, "**$1**");
-    }
-  });
-
-  // Add suggestions for missing keywords at the end
-  const missingKeywords = jobKeywords.filter(
-    (keyword) =>
-      !resumeKeywords.some((rk) => rk.toLowerCase() === keyword.toLowerCase())
-  );
-
-  if (missingKeywords.length > 0) {
-    tailoredResume +=
-      "\n\n--- SUGGESTED SKILLS TO ADD ---\n" +
-      missingKeywords.slice(0, 5).map((k) => `• ${k}`).join("\n");
-  }
-
-  return header + tailoredResume;
 }
 
 /**
