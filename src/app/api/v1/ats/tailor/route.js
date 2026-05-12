@@ -3,6 +3,8 @@ import { analyzeResume } from "@/utils/atsScorer";
 import { successResponse, errorResponse } from "@/utils/helpers";
 import { generateJobFocusedCareerObjective, generateTailoredResumeWithJobKeywords } from "@/utils/resumeTemplateer";
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(req) {
   try {
     let requestData = {};

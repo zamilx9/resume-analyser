@@ -5,6 +5,8 @@ import { successResponse, errorResponse } from "@/utils/helpers";
 import { uploadResume } from "../../resumes/services/resumeService";
 import { createATSAnalysis } from "../dal/atsDAL";
 
+export const dynamic = 'force-dynamic';
+
 // Extract keywords from job description
 function extractKeywordsFromJD(jobDescription) {
   const commonKeywords = [

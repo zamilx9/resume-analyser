@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import PDFDocument from "pdfkit";
 import { getResumeById } from "../dal/resumeDAL";
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
